@@ -28,6 +28,7 @@
     <button class="btn" data-key="cornmayo">コーンマヨ</button>
     <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
   </div>
+  <!-- 了解ボタン（ビューアーのみ有効） -->
   <button id="confirmBtn" class="btn">了解!!</button>
   <div id="qrcode"></div>
   <div id="overlay">音声を有効にするには画面をタップしてください</div>
@@ -37,7 +38,16 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    const firebaseConfig = { /* 省略: あなたの設定 */ };
+    const firebaseConfig = {
+      apiKey: "AIzaSyDmkfSXjLZ5tBlhEKYWzjqfeVsl-Vs7cuI",
+      authDomain: "product-shortage-notific-f557d.firebaseapp.com",
+      databaseURL: "https://product-shortage-notific-f557d-default-rtdb.firebaseio.com",
+      projectId: "product-shortage-notific-f557d",
+      storageBucket: "product-shortage-notific-f557d.firebasestorage.app",
+      messagingSenderId: "840936490929",
+      appId: "1:840936490929:web:e6621306896de7e2ba1f90",
+      measurementId: "G-VJGBK6VE63"
+    };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
@@ -45,12 +55,12 @@
     let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
     if (!sessionId) {
-      sessionId = Math.random().toString(36).substr(2,8);
-      history.replaceState(null,'',`?session=${sessionId}`);
+      sessionId = Math.random().toString(36).substr(2, 8);
+      history.replaceState(null, '', `?session=${sessionId}`);
     }
     const base = `${location.origin}${location.pathname}`;
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
-    new QRCode(document.getElementById('qrcode'), { text: viewUrl, width:100, height:100 });
+    new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
     const stateRef = ref(db, `sessions/${sessionId}/buttons`);
     const confirmRef = ref(db, `sessions/${sessionId}/confirm`);
@@ -60,49 +70,50 @@
 
     // モード設定
     if (isViewer) {
-      // ビューアーのみ了解ボタン有効
-      buttons.forEach(b=>b.classList.add('disabled'));
+      // ビューアー: メニュー無効、了解ボタン有効
+      buttons.forEach(b => b.classList.add('disabled'));
       confirmBtn.disabled = false;
       // オーバーレイで音声有効化
       const overlay = document.getElementById('overlay');
-      overlay.addEventListener('click', ()=>{ audioElem.play().catch(()=>{}); overlay.style.display='none'; },{once:true});
-      // 了解ボタン押下でconfirmRefにタイムスタンプを書き込む
-      confirmBtn.addEventListener('click', ()=>{
+      overlay.addEventListener('click', () => {
+        audioElem.play().catch(() => {});
+        overlay.style.display = 'none';
+      }, { once: true });
+      // 了解ボタン押下でタイムスタンプ送信
+      confirmBtn.addEventListener('click', () => {
         set(confirmRef, Date.now());
         confirmBtn.disabled = true;
       });
     } else {
+      // マスター: 了解ボタン非表示、オーバーレイ非表示
       confirmBtn.remove();
-      document.getElementById('overlay').style.display='none';
-      // マスターはボタン操作可能
-      buttons.forEach(btn=>{
-        btn.addEventListener('click',()=>{
-          const key=btn.dataset.key;
-          runTransaction(ref(db,`sessions/${sessionId}/buttons/${key}`),c=>c?0:1);
-        });
+      document.getElementById('overlay').style.display = 'none';
+      // メニュー操作可能
+      buttons.forEach(btn => {
+        const key = btn.dataset.key;
+        btn.addEventListener('click', () => runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), c => c ? 0 : 1));
       });
     }
 
-    let prevState = {};
-    onValue(stateRef,snap=>{
-      const data = snap.val()||{};
-      buttons.forEach(btn=>{
-        const key=btn.dataset.key;
-        const active=data[key]===1;
-        btn.classList.toggle('active',active);
+    // メニュー同期リスナー
+    onValue(stateRef, snapshot => {
+      const data = snapshot.val() || {};
+      buttons.forEach(btn => {
+        const key = btn.dataset.key;
+        btn.classList.toggle('active', data[key] === 1);
       });
     });
 
-    // 了解イベントリスナー
-    onValue(confirmRef,snap=>{
-      const ts=snap.val();
+    // 了解同期リスナー
+    onValue(confirmRef, snapshot => {
+      const ts = snapshot.val();
       if (!ts) return;
-      // 全ボタンにオレンジクラス
-      buttons.forEach(b=>b.classList.add('confirm-active'));
-      setTimeout(()=>{
-        buttons.forEach(b=>b.classList.remove('confirm-active'));
+      // 全メニューをオレンジ点灯
+      buttons.forEach(b => b.classList.add('confirm-active'));
+      setTimeout(() => {
+        buttons.forEach(b => b.classList.remove('confirm-active'));
         if (isViewer) confirmBtn.disabled = false;
-      },10000);
+      }, 10000);
     });
   </script>
 </body>
