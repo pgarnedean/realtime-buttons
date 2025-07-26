@@ -13,7 +13,7 @@
     .confirm-active { background: orange !important; color: #000; }
     #confirmBtn { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 100px; height: 50px; font-size: 1rem; }
     #qrcode { position: absolute; bottom: 10px; right: 10px; }
-    #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
+    #overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
   </style>
 </head>
 <body>
@@ -38,16 +38,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyDmkfSXjLZ5tBlhEKYWzjqfeVsl-Vs7cuI",
-      authDomain: "product-shortage-notific-f557d.firebaseapp.com",
-      databaseURL: "https://product-shortage-notific-f557d-default-rtdb.firebaseio.com",
-      projectId: "product-shortage-notific-f557d",
-      storageBucket: "product-shortage-notific-f557d.firebasestorage.app",
-      messagingSenderId: "840936490929",
-      appId: "1:840936490929:web:e6621306896de7e2ba1f90",
-      measurementId: "G-VJGBK6VE63"
-    };
+    const firebaseConfig = { /* 設定省略 */ };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
@@ -67,35 +58,32 @@
     const buttons = document.querySelectorAll('.btn[data-key]');
     const confirmBtn = document.getElementById('confirmBtn');
     const audioElem = document.getElementById('customSound');
+    const overlay = document.getElementById('overlay');
 
-    // モード設定
     if (isViewer) {
       // ビューアー: メニュー無効、了解ボタン有効
       buttons.forEach(b => b.classList.add('disabled'));
       confirmBtn.disabled = false;
-      // オーバーレイで音声有効化
-      const overlay = document.getElementById('overlay');
+      // オーバーレイ表示＆タップ待ち
+      overlay.style.display = 'flex';
       overlay.addEventListener('click', () => {
         audioElem.play().catch(() => {});
         overlay.style.display = 'none';
       }, { once: true });
-      // 了解ボタン押下でタイムスタンプ送信
       confirmBtn.addEventListener('click', () => {
         set(confirmRef, Date.now());
         confirmBtn.disabled = true;
       });
     } else {
-      // マスター: 了解ボタン非表示、オーバーレイ非表示
+      // マスター: メニュー操作可能、了解ボタン非表示
       confirmBtn.remove();
-      document.getElementById('overlay').style.display = 'none';
-      // メニュー操作可能
+      overlay.remove();
       buttons.forEach(btn => {
         const key = btn.dataset.key;
         btn.addEventListener('click', () => runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), c => c ? 0 : 1));
       });
     }
 
-    // メニュー同期リスナー
     onValue(stateRef, snapshot => {
       const data = snapshot.val() || {};
       buttons.forEach(btn => {
@@ -104,11 +92,9 @@
       });
     });
 
-    // 了解同期リスナー
     onValue(confirmRef, snapshot => {
       const ts = snapshot.val();
       if (!ts) return;
-      // 全メニューをオレンジ点灯
       buttons.forEach(b => b.classList.add('confirm-active'));
       setTimeout(() => {
         buttons.forEach(b => b.classList.remove('confirm-active'));
