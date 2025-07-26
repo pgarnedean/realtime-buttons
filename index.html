@@ -101,7 +101,7 @@
         const isActive = data[key] === 1;
         btn.classList.toggle('active', isActive);
         if (isViewer && !prevState[key] && isActive) {
-          playBeep(2);
+          playBeep(1);
         }
       });
       prevState = { ...data };
