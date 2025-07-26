@@ -13,11 +13,11 @@
     .confirm-active { background: orange !important; color: #000; }
     #confirmBtn { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 100px; height: 50px; font-size: 1rem; }
     #qrcode { position: absolute; bottom: 10px; right: 10px; }
+    /* オーバーレイはデフォルト非表示 */
     #overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
   </style>
 </head>
 <body>
-  <!-- カスタム音声ファイル -->
   <audio id="customSound" src="./sound.mp3" preload="auto"></audio>
 
   <div id="buttons">
@@ -28,7 +28,7 @@
     <button class="btn" data-key="cornmayo">コーンマヨ</button>
     <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
   </div>
-  <!-- 了解ボタン（ビューアーのみ有効） -->
+
   <button id="confirmBtn" class="btn">了解!!</button>
   <div id="qrcode"></div>
   <div id="overlay">音声を有効にするには画面をタップしてください</div>
@@ -61,11 +61,10 @@
     const overlay = document.getElementById('overlay');
 
     if (isViewer) {
-      // ビューアー: メニュー無効、了解ボタン有効
+      // ビューアー: オーバーレイ表示、ボタン無効、了解ボタン有効
+      overlay.style.display = 'flex';
       buttons.forEach(b => b.classList.add('disabled'));
       confirmBtn.disabled = false;
-      // オーバーレイ表示＆タップ待ち
-      overlay.style.display = 'flex';
       overlay.addEventListener('click', () => {
         audioElem.play().catch(() => {});
         overlay.style.display = 'none';
@@ -75,9 +74,9 @@
         confirmBtn.disabled = true;
       });
     } else {
-      // マスター: メニュー操作可能、了解ボタン非表示
+      // マスター: オーバーレイ非表示、了解ボタン削除
+      overlay.style.display = 'none';
       confirmBtn.remove();
-      overlay.remove();
       buttons.forEach(btn => {
         const key = btn.dataset.key;
         btn.addEventListener('click', () => runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), c => c ? 0 : 1));
