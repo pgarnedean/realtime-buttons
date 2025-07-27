@@ -5,67 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>リアルタイム商品不足アラート</title>
   <style>
-    body { 
-      display: flex; 
-      flex-direction: column; 
-      align-items: center; 
-      justify-content: center; 
-      height: 100vh; 
-      margin: 0; 
-      position: relative; 
-    }
-    #buttons { 
-      display: grid; 
-      grid-template-columns: repeat(3, 120px); 
-      gap: 10px; 
-    }
-    .btn { 
-      width: 120px; 
-      height: 80px; 
-      font-size: 1rem; 
-      background: #eee; 
-      border: none; 
-      border-radius: 8px; 
-      cursor: pointer; 
-      white-space: nowrap; 
-    }
-    .btn.disabled { 
-      pointer-events: none; 
-      opacity: 0.6; 
-      cursor: default; 
-    }
-    .active { 
-      background: red; 
-      color: white; 
-    }
-    /* 了解ボタン */
-    #ack {
-      position: absolute;
-      right: 20px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 100px;
-      height: 50px;
-      font-size: 1rem;
-      background: #eee;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-    #ack.disabled {
-      pointer-events: none;
-      opacity: 0.6;
-      cursor: default;
-    }
-    #ack.ack-active {
-      background: orange;
-      color: white;
-    }
-    #qrcode { 
-      position: absolute; 
-      bottom: 10px; 
-      right: 10px; 
-    }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; position: relative; }
+    #buttons { display: grid; grid-template-columns: repeat(3, 120px); gap: 10px; }
+    .btn { width: 120px; height: 80px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+    .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
+    .active { background: red; color: white; }
+    .confirm-active { background: orange !important; color: #000; }
+    #confirmBtn { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 100px; height: 50px; font-size: 1rem; }
+    #qrcode { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 100px; }
   </style>
 </head>
 <body>
@@ -80,93 +27,79 @@
     <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
   </div>
 
-  <button id="ack">了解!!</button>
+  <button id="confirmBtn" class="btn">了解!!</button>
   <div id="qrcode"></div>
 
+  <!-- QRCode.js ライブラリ -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    // Firebase 初期設定
-    const firebaseConfig = { /* 省略 */ };
+    // Firebase 設定
+    const firebaseConfig = { /* YOUR FIREBASE CONFIG */ };
     const app = initializeApp(firebaseConfig);
-    const db  = getDatabase(app);
-
-    // 要素取得
-    const audioElem = document.getElementById('customSound');
-    const buttons   = document.querySelectorAll('.btn');
-    const ackBtn    = document.getElementById('ack');
+    const db = getDatabase(app);
 
     // URL パラメータ
-    const params   = new URLSearchParams(location.search);
-    let sessionId  = params.get('session');
+    const params = new URLSearchParams(location.search);
+    let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
 
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
       history.replaceState(null, '', `?session=${sessionId}`);
     }
-    const base    = `${location.origin}${location.pathname}`;
+    const base = `${location.origin}${location.pathname}`;
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
-    new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
-    // DB 参照
-    const stateRef = ref(db, `sessions/${sessionId}/buttons`);
-    const ackRef   = ref(db, `sessions/${sessionId}/ack`);
-
-    // 音声アンロック関数
-    function unlockAudio() {
-      audioElem.play()
-        .then(() => { audioElem.pause(); audioElem.currentTime = 0; })
-        .catch(() => {});
-    }
-
-    // ビューアー側処理
-    if (isViewer) {
-      // メニュー無効
-      buttons.forEach(b => b.classList.add('disabled'));
-      // 初回「了解」クリックで音声アンロック
-      ackBtn.addEventListener('pointerdown', unlockAudio, { once: true });
-      // 了解ボタン押下で sync & 10秒後オフ
-      ackBtn.addEventListener('click', () => {
-        set(ackRef, true);
-        setTimeout(() => set(ackRef, false), 10000);
-      });
-    } else {
-      // マスター側：メニュー操作
-      ackBtn.classList.add('disabled');
-      buttons.forEach(b => {
-        b.addEventListener('click', () => {
-          const key = b.dataset.key;
-          runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`),
-            cur => cur ? 0 : 1
-          );
-        });
-      });
-    }
-
-    // メニュー同期＋音声再生
-    let prevMenu = {};
-    onValue(stateRef, snap => {
-      const data = snap.val() || {};
-      buttons.forEach(b => {
-        const key = b.dataset.key;
-        const active = data[key] === 1;
-        b.classList.toggle('active', active);
-        // Viewer で OFF→ON のとき音声再生
-        if (isViewer && !prevMenu[key] && active) {
-          audioElem.currentTime = 0;
-          audioElem.play().catch(() => {});
-        }
-      });
-      prevMenu = { ...data };
+    // QRコード生成を window.onload で
+    window.addEventListener('load', () => {
+      const qrContainer = document.getElementById('qrcode');
+      qrContainer.innerHTML = '';
+      new QRCode(qrContainer, { text: viewUrl, width: 100, height: 100 });
     });
 
-    // 了解ボタン同期
-    onValue(ackRef, snap => {
-      const flag = snap.val();
-      ackBtn.classList.toggle('ack-active', flag === true);
+    const stateRef = ref(db, `sessions/${sessionId}/buttons`);
+    const confirmRef = ref(db, `sessions/${sessionId}/confirm`);
+    const buttons = document.querySelectorAll('.btn[data-key]');
+    const confirmBtn = document.getElementById('confirmBtn');
+    const audioElem = document.getElementById('customSound');
+
+    if (isViewer) {
+      buttons.forEach(b => b.classList.add('disabled'));
+      confirmBtn.disabled = false;
+      confirmBtn.addEventListener('click', () => {
+        set(confirmRef, Date.now());
+        confirmBtn.disabled = true;
+      });
+    } else {
+      buttons.forEach(btn => {
+        const key = btn.dataset.key;
+        btn.addEventListener('click', () => runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), c => c ? 0 : 1));
+      });
+      confirmBtn.disabled = true;
+      confirmBtn.style.cursor = 'default';
+    }
+
+    onValue(stateRef, snapshot => {
+      const data = snapshot.val() || {};
+      buttons.forEach(btn => {
+        const key = btn.dataset.key;
+        btn.classList.toggle('active', data[key] === 1);
+      });
+    });
+
+    onValue(confirmRef, snapshot => {
+      const ts = snapshot.val();
+      if (!ts) return;
+      buttons.forEach(b => b.classList.add('confirm-active'));
+      audioElem.currentTime = 0;
+      audioElem.play().catch(() => {});
+      setTimeout(() => {
+        buttons.forEach(b => b.classList.remove('confirm-active'));
+        if (isViewer) confirmBtn.disabled = false;
+      }, 10000);
     });
   </script>
 </body>
