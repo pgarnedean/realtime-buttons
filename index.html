@@ -3,20 +3,69 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>リアルタイム商品不足アラート</title>
+  <title>リアルタイムメニュー同期（音声アンロック修正版）</title>
   <style>
-    body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; position: relative; }
-    #buttons { display: grid; grid-template-columns: repeat(3, 120px); gap: 10px; }
-    .btn { width: 120px; height: 80px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
-    .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
-    .active { background: red; color: white; }
-    #ack {
-      position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
-      width: 100px; height: 50px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer;
+    body { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      height: 100vh; 
+      margin: 0; 
+      position: relative; 
     }
-    #ack.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
-    #ack.ack-active { background: orange; color: white; }
-    #qrcode { position: absolute; bottom: 10px; right: 10px; }
+    #buttons { 
+      display: grid; 
+      grid-template-columns: repeat(3, 120px); 
+      gap: 10px; 
+    }
+    .btn { 
+      width: 120px; 
+      height: 80px; 
+      font-size: 1rem; 
+      background: #eee; 
+      border: none; 
+      border-radius: 8px; 
+      cursor: pointer; 
+      white-space: nowrap; 
+    }
+    .btn.disabled { 
+      pointer-events: none; 
+      opacity: 0.6; 
+      cursor: default; 
+    }
+    .active { 
+      background: red; 
+      color: white; 
+    }
+    /* 了解ボタン */
+    #ack {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 100px;
+      height: 50px;
+      font-size: 1rem;
+      background: #eee;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #ack.disabled {
+      pointer-events: none;
+      opacity: 0.6;
+      cursor: default;
+    }
+    #ack.ack-active {
+      background: orange;
+      color: white;
+    }
+    #qrcode { 
+      position: absolute; 
+      bottom: 10px; 
+      right: 10px; 
+    }
   </style>
 </head>
 <body>
@@ -39,14 +88,20 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    // Firebase 初期化
-    const firebaseConfig = { /* 既存設定 */ };
+    // Firebase 初期設定
+    const firebaseConfig = { /* 省略 */ };
     const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+    const db  = getDatabase(app);
 
-    const params    = new URLSearchParams(location.search);
-    let sessionId   = params.get('session');
-    const isViewer  = params.get('viewer') === '1';
+    // 要素取得
+    const audioElem = document.getElementById('customSound');
+    const buttons   = document.querySelectorAll('.btn');
+    const ackBtn    = document.getElementById('ack');
+
+    // URL パラメータ
+    const params   = new URLSearchParams(location.search);
+    let sessionId  = params.get('session');
+    const isViewer = params.get('viewer') === '1';
 
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
@@ -56,61 +111,62 @@
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
     new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
+    // DB 参照
     const stateRef = ref(db, `sessions/${sessionId}/buttons`);
     const ackRef   = ref(db, `sessions/${sessionId}/ack`);
-    const buttons  = document.querySelectorAll('.btn');
-    const ackBtn   = document.getElementById('ack');
-    const audio    = document.getElementById('customSound');
 
-    // ビューアー側：最初のどこかタップで“ミュート再生→解除”して以降の play() を保証
-    if (isViewer) {
-      const unlock = () => {
-        audio.muted = true;
-        audio.play().catch(() => {}).finally(() => {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.muted = false;
-          document.body.removeEventListener('click', unlock);
-        });
-      };
-      document.body.addEventListener('click', unlock, { once: true });
+    // 音声アンロック関数
+    function unlockAudio() {
+      audioElem.play()
+        .then(() => { audioElem.pause(); audioElem.currentTime = 0; })
+        .catch(() => {});
     }
 
-    // 操作制御
+    // ビューアー側処理
     if (isViewer) {
+      // メニュー無効
       buttons.forEach(b => b.classList.add('disabled'));
-      ackBtn.classList.remove('disabled');
+      // 初回「了解」クリックで音声アンロック
+      ackBtn.addEventListener('pointerdown', unlockAudio, { once: true });
+      // 了解ボタン押下で sync & 10秒後オフ
       ackBtn.addEventListener('click', () => {
         set(ackRef, true);
         setTimeout(() => set(ackRef, false), 10000);
       });
     } else {
+      // マスター側：メニュー操作
       ackBtn.classList.add('disabled');
       buttons.forEach(b => {
         b.addEventListener('click', () => {
           const key = b.dataset.key;
-          runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), cur => cur ? 0 : 1);
+          runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`),
+            cur => cur ? 0 : 1
+          );
         });
       });
     }
 
-    // 同期＋効果音
-    let prev = {};
+    // メニュー同期＋音声再生
+    let prevMenu = {};
     onValue(stateRef, snap => {
       const data = snap.val() || {};
       buttons.forEach(b => {
-        const k = b.dataset.key;
-        const on = data[k] === 1;
-        b.classList.toggle('active', on);
-        if (isViewer && !prev[k] && on) {
-          audio.currentTime = 0;
-          audio.play().catch(console.error);
+        const key = b.dataset.key;
+        const active = data[key] === 1;
+        b.classList.toggle('active', active);
+        // Viewer で OFF→ON のとき音声再生
+        if (isViewer && !prevMenu[key] && active) {
+          audioElem.currentTime = 0;
+          audioElem.play().catch(() => {});
         }
       });
-      prev = { ...data };
+      prevMenu = { ...data };
     });
+
+    // 了解ボタン同期
     onValue(ackRef, snap => {
-      ackBtn.classList.toggle('ack-active', snap.val() === true);
+      const flag = snap.val();
+      ackBtn.classList.toggle('ack-active', flag === true);
     });
   </script>
 </body>
