@@ -3,69 +3,75 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>リアルタイムメニュー同期</title>
+  <title>リアルタイムメニュー同期（了解ボタン追加版）</title>
   <style>
-    body {
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      position: relative;
+    body { 
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      justify-content: center; 
+      height: 100vh; 
+      margin: 0; 
+      position: relative; 
     }
-    #buttons {
-      display: grid;
-      grid-template-columns: repeat(3, 120px);
-      gap: 10px;
+    #buttons { 
+      display: grid; 
+      grid-template-columns: repeat(3, 120px); 
+      gap: 10px; 
     }
-    .btn {
-      width: 120px;
-      height: 80px;
-      font-size: 1rem;
-      background: #eee;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      white-space: nowrap;
+    .btn { 
+      width: 120px; 
+      height: 80px; 
+      font-size: 1rem; 
+      background: #eee; 
+      border: none; 
+      border-radius: 8px; 
+      cursor: pointer; 
+      white-space: nowrap; 
     }
-    .btn.disabled {
-      pointer-events: none;
-      opacity: 0.6;
-      cursor: default;
+    .btn.disabled { 
+      pointer-events: none; 
+      opacity: 0.6; 
+      cursor: default; 
     }
-    .active {
-      background: red;
-      color: white;
+    .active { 
+      background: red; 
+      color: white; 
     }
-    /* 了解ボタン専用 */
-    #ack-btn {
+    /* 了解ボタン */
+    #ack {
       position: absolute;
       right: 20px;
       top: 50%;
       transform: translateY(-50%);
       width: 100px;
       height: 50px;
-      background: #ffa500; /* デフォルトオレンジ */
-      color: white;
       font-size: 1rem;
+      background: #eee;
       border: none;
       border-radius: 8px;
+      cursor: pointer;
     }
-    #ack-btn.disabled {
+    #ack.disabled {
       pointer-events: none;
       opacity: 0.6;
+      cursor: default;
     }
-    #ack-btn.ack-active {
-      background: darkorange;
+    #ack.ack-active {
+      background: orange;
+      color: white;
     }
-    #qrcode {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
+    #qrcode { 
+      position: absolute; 
+      bottom: 10px; 
+      right: 10px; 
     }
   </style>
 </head>
 <body>
+  <!-- カスタム音声ファイル -->
+  <audio id="customSound" src="./sound.mp3" preload="auto"></audio>
+
   <div id="buttons">
     <button class="btn" data-key="kimchi">キムチ</button>
     <button class="btn" data-key="yakiniku">やきにく</button>
@@ -76,7 +82,7 @@
   </div>
 
   <!-- 了解ボタン -->
-  <button id="ack-btn">了解!!</button>
+  <button id="ack" class="disabled">了解!!</button>
 
   <div id="qrcode"></div>
 
@@ -87,83 +93,84 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    // Firebase 設定
+    // Firebase 初期設定
     const firebaseConfig = {
-      apiKey: "...",
-      authDomain: "...",
-      databaseURL: "...",
-      projectId: "...",
-      storageBucket: "...",
-      messagingSenderId: "...",
-      appId: "...",
-      measurementId: "..."
+      apiKey: "AIzaSyDmkfSXjLZ5tBlhEKYWzjqfeVsl-Vs7cuI",
+      authDomain: "product-shortage-notific-f557d.firebaseapp.com",
+      databaseURL: "https://product-shortage-notific-f557d-default-rtdb.firebaseio.com",
+      projectId: "product-shortage-notific-f557d",
+      storageBucket: "product-shortage-notific-f557d.firebasestorage.app",
+      messagingSenderId: "840936490929",
+      appId: "1:840936490929:web:e6621306896de7e2ba1f90",
+      measurementId: "G-VJGBK6VE63"
     };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // URL パラメータ
+    // URLパラメータ取得
     const params = new URLSearchParams(location.search);
     let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
 
+    // セッションID がなければ生成
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
       history.replaceState(null, '', `?session=${sessionId}`);
     }
+
+    // QRコード生成（viewer=1付きURL）
     const base = `${location.origin}${location.pathname}`;
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
     new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
-    // Realtime Database リファレンス
+    // Realtime Database 参照
     const stateRef = ref(db, `sessions/${sessionId}/buttons`);
     const ackRef   = ref(db, `sessions/${sessionId}/ack`);
     const buttons  = document.querySelectorAll('.btn');
-    const ackBtn   = document.getElementById('ack-btn');
+    const ackBtn   = document.getElementById('ack');
+    const audioElem = document.getElementById('customSound');
 
-    // フレーバーボタンの設定
+    // マスター／ビューアーそれぞれの操作制御
     if (isViewer) {
-      buttons.forEach(btn => btn.classList.add('disabled'));
+      // ビューアー：メニュー無効、了解ボタン有効
+      buttons.forEach(b => b.classList.add('disabled'));
+      ackBtn.classList.remove('disabled');
+      ackBtn.addEventListener('click', () => {
+        // 了解をON→OFF（10秒後）で同期
+        set(ackRef, true);
+        setTimeout(() => set(ackRef, false), 10000);
+      });
     } else {
-      ackBtn.classList.add('disabled');
-      buttons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          const key = btn.dataset.key;
-          const btnRef = ref(db, `sessions/${sessionId}/buttons/${key}`);
-          runTransaction(btnRef, cur => (cur ? 0 : 1));
+      // マスター：メニュー有効、了解ボタン無効
+      buttons.forEach(b => {
+        b.addEventListener('click', () => {
+          const key = b.dataset.key;
+          runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), cur => cur ? 0 : 1);
         });
       });
+      ackBtn.classList.add('disabled');
     }
 
-    // 了解ボタンの設定
-    if (isViewer) {
-      ackBtn.addEventListener('click', () => {
-        // set ack = 1
-        set(ackRef, 1);
+    // メニュー同期とカスタム音声再生
+    let prevState = {};
+    onValue(stateRef, snap => {
+      const data = snap.val() || {};
+      buttons.forEach(b => {
+        const key = b.dataset.key;
+        b.classList.toggle('active', data[key] === 1);
+        // ビューアー：OFF→ONで音声
+        if (isViewer && !prevState[key] && data[key] === 1) {
+          audioElem.currentTime = 0;
+          audioElem.play().catch(console.error);
+        }
       });
-    }
-
-    // 状態監視
-    let prevAck = 0;
-    onValue(stateRef, snapshot => {
-      const data = snapshot.val() || {};
-      buttons.forEach(btn => {
-        const key = btn.dataset.key;
-        btn.classList.toggle('active', data[key] === 1);
-      });
+      prevState = { ...data };
     });
-    onValue(ackRef, snapshot => {
-      const val = snapshot.val() || 0;
-      // OFF→ON: 点灯スタート
-      if (prevAck === 0 && val === 1) {
-        ackBtn.classList.add('ack-active');
-        // 10秒後に reset
-        setTimeout(() => set(ackRef, 0), 10000);
-      }
-      // ON→OFF: 点灯終了
-      if (val === 0) {
-        ackBtn.classList.remove('ack-active');
-      }
-      prevAck = val;
+
+    // 了解ボタン同期
+    onValue(ackRef, snap => {
+      const flag = snap.val();
+      ackBtn.classList.toggle('ack-active', flag === true);
     });
   </script>
 </body>
