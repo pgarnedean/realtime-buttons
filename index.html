@@ -10,26 +10,9 @@
     .btn { width: 120px; height: 80px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
     .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
     .active { background: red; color: white; }
-    /* ACKボタン */
-    #ackBtn {
-      position: absolute;
-      top: 50%;
-      right: 10px;
-      width: 80px;
-      height: 80px;
-      transform: translateY(-50%);
-      font-size: 1rem;
-      border: none;
-      border-radius: 8px;
-      background: #eee;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-    }
-    #ackBtn.disabled { pointer-events: none; opacity: 0.6; }
-    #ackBtn.ack-active { background: orange; color: white; }
+    /* 了解ボタン用 */
+    .ackBtn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 100px; height: 100px; font-size: 1.2rem; }
+    .ackBtn.activeAck { background: orange; color: white; }
     #qrcode { position: absolute; bottom: 10px; right: 10px; }
   </style>
 </head>
@@ -45,8 +28,10 @@
     <button class="btn" data-key="cornmayo">コーンマヨ</button>
     <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
   </div>
-  <!-- ACKボタン -->
-  <button id="ackBtn">了解!!</button>
+
+  <!-- 了解ボタン -->
+  <button id="ackBtn" class="btn ackBtn">了解!!</button>
+
   <div id="qrcode"></div>
 
   <!-- QRCode.js -->
@@ -70,12 +55,12 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // URLパラメータ取得
+    // URLパラメータからセッションとビューアー判定
     const params = new URLSearchParams(location.search);
     let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
 
-    // セッション生成＆QRコード
+    // セッションが未設定なら生成
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
       history.replaceState(null, '', `?session=${sessionId}`);
@@ -84,61 +69,49 @@
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
     new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
-    // Firebase Refs
     const stateRef = ref(db, `sessions/${sessionId}/buttons`);
-    const ackRef = ref(db, `sessions/${sessionId}/ack`);
-    const buttons = document.querySelectorAll('.btn');
-    const ackBtn = document.getElementById('ackBtn');
+    const ackRef   = ref(db, `sessions/${sessionId}/ack`);
+    const buttons  = document.querySelectorAll('.btn[data-key]');
+    const ackBtn   = document.getElementById('ackBtn');
     const audioElem = document.getElementById('customSound');
 
-    // マスター／ビューアー設定
-    if (isViewer) {
-      // メニュー操作禁止
-      buttons.forEach(btn => btn.classList.add('disabled'));
-      // ACK ボタンのみ有効
-      ackBtn.addEventListener('click', () => {
-        set(ackRef, true);
-      });
-    } else {
-      // ビューアー用 ACK ボタンは非活性
-      ackBtn.classList.add('disabled');
-      // メニュー操作
-      buttons.forEach(btn => {
+    // ⮞ ボタン登録（マスターは既存ボタン、ビューアーも音声再生用にカスタムサウンドを初回再生）
+    buttons.forEach(btn => {
+      if (!isViewer) {
         btn.addEventListener('click', () => {
           const key = btn.dataset.key;
           const btnRef = ref(db, `sessions/${sessionId}/buttons/${key}`);
           runTransaction(btnRef, current => (current ? 0 : 1));
         });
-      });
-    }
+      }
+    });
 
-    // 既存メニュー同期リスナー
+    // ⮞ 了解ボタン登録（マスター／ビューアー 両方OK）
+    ackBtn.addEventListener('click', () => {
+      // 押した瞬間に ack を立てる
+      set(ackRef, 1);
+      // 10秒後にオフ
+      setTimeout(() => set(ackRef, 0), 10000);
+    });
+
+    // ⮞ リアルタイム更新リスナー
     let prevState = {};
     onValue(stateRef, snapshot => {
       const data = snapshot.val() || {};
       buttons.forEach(btn => {
         const key = btn.dataset.key;
-        const isActive = data[key] === 1;
-        btn.classList.toggle('active', isActive);
-        if (isViewer && !prevState[key] && isActive) {
-          audioElem.currentTime = 0;
-          audioElem.play().catch(console.error);
-        }
+        btn.classList.toggle('active', data[key] === 1);
       });
-      prevState = { ...data };
     });
-
-    // ACK リスナー
     onValue(ackRef, snapshot => {
-      const ackState = snapshot.val();
-      // 両端末でボタン色切り替え
-      ackBtn.classList.toggle('ack-active', !!ackState);
-      if (ackState) {
-        // 10秒後に消灯
-        setTimeout(() => {
-          set(ackRef, false);
-        }, 10 * 1000);
+      const isAck = snapshot.val() === 1;
+      ackBtn.classList.toggle('activeAck', isAck);
+      // OFF→ON でカスタムサウンド再生（ビューアーでもOK）
+      if (isAck && !prevState.ack) {
+        audioElem.currentTime = 0;
+        audioElem.play().catch(console.error);
       }
+      prevState.ack = isAck;
     });
   </script>
 </body>
