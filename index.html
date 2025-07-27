@@ -10,16 +10,13 @@
     .btn { width: 120px; height: 80px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
     .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
     .active { background: red; color: white; }
-    /* 了解ボタン用 */
-    .ackBtn { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 100px; height: 100px; font-size: 1.2rem; }
-    .ackBtn.activeAck { background: orange; color: white; }
+    #okBtn { position: absolute; top: 20px; right: 20px; width: 100px; height: 40px; font-size: 1rem; border: none; border-radius: 8px; cursor: pointer; background: #eee; }
+    #okBtn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
+    #okBtn.ok-active { background: orange; color: white; }
     #qrcode { position: absolute; bottom: 10px; right: 10px; }
   </style>
 </head>
 <body>
-  <!-- カスタム音声ファイル -->
-  <audio id="customSound" src="./sound.mp3" preload="auto"></audio>
-
   <div id="buttons">
     <button class="btn" data-key="kimchi">キムチ</button>
     <button class="btn" data-key="yakiniku">やきにく</button>
@@ -30,9 +27,12 @@
   </div>
 
   <!-- 了解ボタン -->
-  <button id="ackBtn" class="btn ackBtn">了解!!</button>
+  <button id="okBtn" class="disabled">了解!!</button>
 
   <div id="qrcode"></div>
+
+  <!-- カスタム音声ファイル（同階層に配置） -->
+  <audio id="customSound" src="./sound.mp3" preload="auto"></audio>
 
   <!-- QRCode.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -41,26 +41,17 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    // Firebase 初期設定
-    const firebaseConfig = {
-      apiKey: "AIzaSyDmkfSXjLZ5tBlhEKYWzjqfeVsl-Vs7cuI",
-      authDomain: "product-shortage-notific-f557d.firebaseapp.com",
-      databaseURL: "https://product-shortage-notific-f557d-default-rtdb.firebaseio.com",
-      projectId: "product-shortage-notific-f557d",
-      storageBucket: "product-shortage-notific-f557d.firebasestorage.app",
-      messagingSenderId: "840936490929",
-      appId: "1:840936490929:web:e6621306896de7e2ba1f90",
-      measurementId: "G-VJGBK6VE63"
-    };
+    // Firebase 設定
+    const firebaseConfig = { /* 省略: 既存の設定をそのまま */ };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // URLパラメータからセッションとビューアー判定
+    // URLパラメータ
     const params = new URLSearchParams(location.search);
     let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
 
-    // セッションが未設定なら生成
+    // セッション生成＆QR生成
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
       history.replaceState(null, '', `?session=${sessionId}`);
@@ -69,49 +60,62 @@
     const viewUrl = `${base}?session=${sessionId}&viewer=1`;
     new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
+    // Realtime DB リファレンス
     const stateRef = ref(db, `sessions/${sessionId}/buttons`);
     const ackRef   = ref(db, `sessions/${sessionId}/ack`);
-    const buttons  = document.querySelectorAll('.btn[data-key]');
-    const ackBtn   = document.getElementById('ackBtn');
+
+    // 要素取得
+    const buttons = document.querySelectorAll('.btn');
+    const okBtn   = document.getElementById('okBtn');
     const audioElem = document.getElementById('customSound');
 
-    // ⮞ ボタン登録（マスターは既存ボタン、ビューアーも音声再生用にカスタムサウンドを初回再生）
-    buttons.forEach(btn => {
-      if (!isViewer) {
+    // ビューアーモード設定
+    if (isViewer) {
+      // メニュー操作無効化、OKボタン有効化
+      buttons.forEach(btn => btn.classList.add('disabled'));
+      okBtn.classList.remove('disabled');
+
+      // ビューアーのみOKボタンを操作可能
+      okBtn.addEventListener('click', () => {
+        runTransaction(ackRef, cur => cur ? 0 : 1);
+        // 10秒後にOFFに戻す
+        setTimeout(() => set(ackRef, 0), 10000);
+      });
+    } else {
+      // マスター画面：OKボタン操作不可
+      okBtn.classList.add('disabled');
+      // メニュー同期イベントのみ
+      buttons.forEach(btn => {
         btn.addEventListener('click', () => {
           const key = btn.dataset.key;
-          const btnRef = ref(db, `sessions/${sessionId}/buttons/${key}`);
-          runTransaction(btnRef, current => (current ? 0 : 1));
+          runTransaction(ref(db, `sessions/${sessionId}/buttons/${key}`), cur => cur ? 0 : 1);
         });
-      }
-    });
+      });
+    }
 
-    // ⮞ 了解ボタン登録（マスター／ビューアー 両方OK）
-    ackBtn.addEventListener('click', () => {
-      // 押した瞬間に ack を立てる
-      set(ackRef, 1);
-      // 10秒後にオフ
-      setTimeout(() => set(ackRef, 0), 10000);
-    });
+    // 音声有効化は不要（オーバーレイ削除済み）
 
-    // ⮞ リアルタイム更新リスナー
     let prevState = {};
-    onValue(stateRef, snapshot => {
-      const data = snapshot.val() || {};
+
+    // メニュー状態同期
+    onValue(stateRef, snap => {
+      const data = snap.val() || {};
       buttons.forEach(btn => {
         const key = btn.dataset.key;
         btn.classList.toggle('active', data[key] === 1);
       });
     });
-    onValue(ackRef, snapshot => {
-      const isAck = snapshot.val() === 1;
-      ackBtn.classList.toggle('activeAck', isAck);
-      // OFF→ON でカスタムサウンド再生（ビューアーでもOK）
-      if (isAck && !prevState.ack) {
+
+    // 了解フラグ同期
+    onValue(ackRef, snap => {
+      const ack = snap.val();
+      okBtn.classList.toggle('ok-active', ack === 1);
+      // 効果音再生
+      if (isViewer && ack === 1 && !prevState.ack) {
         audioElem.currentTime = 0;
         audioElem.play().catch(console.error);
       }
-      prevState.ack = isAck;
+      prevState.ack = ack;
     });
   </script>
 </body>
