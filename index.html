@@ -1,170 +1,124 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>リアルタイムメニュー同期</title>
-  <style>
-    body {
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      position: relative;
-    }
-    #buttons {
-      display: grid;
-      grid-template-columns: repeat(3, 120px);
-      gap: 10px;
-    }
-    .btn {
-      width: 120px;
-      height: 80px;
-      font-size: 1rem;
-      background: #eee;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .btn.disabled {
-      pointer-events: none;
-      opacity: 0.6;
-      cursor: default;
-    }
-    .active {
-      background: red;
-      color: white;
-    }
-    /* 了解ボタン専用 */
-    #ack-btn {
-      position: absolute;
-      right: 20px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 100px;
-      height: 50px;
-      background: #ffa500; /* デフォルトオレンジ */
-      color: white;
-      font-size: 1rem;
-      border: none;
-      border-radius: 8px;
-    }
-    #ack-btn.disabled {
-      pointer-events: none;
-      opacity: 0.6;
-    }
-    #ack-btn.ack-active {
-      background: darkorange;
-    }
-    #qrcode {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-    }
-  </style>
+ <meta charset="UTF-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+ <title>リアルタイム商品不足アラート</title>
+ <style>
+   body { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; position: relative; }
+   #buttons { display: grid; grid-template-columns: repeat(3, 120px); gap: 10px; }
+   .btn { width: 120px; height: 80px; font-size: 1rem; background: #eee; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+   .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
+   .active { background: red; color: white; }
+   #qrcode { position: absolute; bottom: 10px; right: 10px; }
+   #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
+ </style>
 </head>
 <body>
-  <div id="buttons">
-    <button class="btn" data-key="kimchi">キムチ</button>
-    <button class="btn" data-key="yakiniku">やきにく</button>
-    <button class="btn" data-key="plain">プレーン</button>
-    <button class="btn" data-key="negimiso">ねぎみそ</button>
-    <button class="btn" data-key="cornmayo">コーンマヨ</button>
-    <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
-  </div>
+ <div id="buttons">
+   <button class="btn" data-key="kimchi">キムチ</button>
+   <button class="btn" data-key="yakiniku">やきにく</button>
+   <button class="btn" data-key="plain">プレーン</button>
+   <button class="btn" data-key="negimiso">ねぎみそ</button>
+   <button class="btn" data-key="cornmayo">コーンマヨ</button>
+   <button class="btn" data-key="edamame">えだまめ<br>塩こんぶ</button>
+ </div>
+ <div id="qrcode"></div>
+ <div id="overlay">音声を有効にするには画面をタップしてください</div>
 
-  <!-- 了解ボタン -->
-  <button id="ack-btn">了解!!</button>
 
-  <div id="qrcode"></div>
+ <!-- QRCode.js ライブラリ -->
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <!-- QRCode.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
-    import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
+ <script type="module">
+   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+   import { getDatabase, ref, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
-    // Firebase 設定
-    const firebaseConfig = {
-      apiKey: "...",
-      authDomain: "...",
-      databaseURL: "...",
-      projectId: "...",
-      storageBucket: "...",
-      messagingSenderId: "...",
-      appId: "...",
-      measurementId: "..."
-    };
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
 
-    // URL パラメータ
-    const params = new URLSearchParams(location.search);
-    let sessionId = params.get('session');
-    const isViewer = params.get('viewer') === '1';
+   const firebaseConfig = {
+     apiKey: "AIzaSyDmkfSXjLZ5tBlhEKYWzjqfeVsl-Vs7cuI",
+     authDomain: "product-shortage-notific-f557d.firebaseapp.com",
+     databaseURL: "https://product-shortage-notific-f557d-default-rtdb.firebaseio.com",
+     projectId: "product-shortage-notific-f557d",
+     storageBucket: "product-shortage-notific-f557d.firebasestorage.app",
+     messagingSenderId: "840936490929",
+     appId: "1:840936490929:web:e6621306896de7e2ba1f90",
+     measurementId: "G-VJGBK6VE63"
+   };
 
-    if (!sessionId) {
-      sessionId = Math.random().toString(36).substr(2, 8);
-      history.replaceState(null, '', `?session=${sessionId}`);
-    }
-    const base = `${location.origin}${location.pathname}`;
-    const viewUrl = `${base}?session=${sessionId}&viewer=1`;
-    new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
 
-    // Realtime Database リファレンス
-    const stateRef = ref(db, `sessions/${sessionId}/buttons`);
-    const ackRef   = ref(db, `sessions/${sessionId}/ack`);
-    const buttons  = document.querySelectorAll('.btn');
-    const ackBtn   = document.getElementById('ack-btn');
+   const app = initializeApp(firebaseConfig);
+   const db = getDatabase(app);
 
-    // フレーバーボタンの設定
-    if (isViewer) {
-      buttons.forEach(btn => btn.classList.add('disabled'));
-    } else {
-      ackBtn.classList.add('disabled');
-      buttons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          const key = btn.dataset.key;
-          const btnRef = ref(db, `sessions/${sessionId}/buttons/${key}`);
-          runTransaction(btnRef, cur => (cur ? 0 : 1));
-        });
-      });
-    }
 
-    // 了解ボタンの設定
-    if (isViewer) {
-      ackBtn.addEventListener('click', () => {
-        // set ack = 1
-        set(ackRef, 1);
-      });
-    }
+   const params = new URLSearchParams(location.search);
+   let sessionId = params.get('session');
+   const isViewer = params.get('viewer') === '1';
 
-    // 状態監視
-    let prevAck = 0;
-    onValue(stateRef, snapshot => {
-      const data = snapshot.val() || {};
-      buttons.forEach(btn => {
-        const key = btn.dataset.key;
-        btn.classList.toggle('active', data[key] === 1);
-      });
-    });
-    onValue(ackRef, snapshot => {
-      const val = snapshot.val() || 0;
-      // OFF→ON: 点灯スタート
-      if (prevAck === 0 && val === 1) {
-        ackBtn.classList.add('ack-active');
-        // 10秒後に reset
-        setTimeout(() => set(ackRef, 0), 10000);
-      }
-      // ON→OFF: 点灯終了
-      if (val === 0) {
-        ackBtn.classList.remove('ack-active');
-      }
-      prevAck = val;
-    });
-  </script>
+
+   if (!sessionId) {
+     sessionId = Math.random().toString(36).substr(2, 8);
+     history.replaceState(null, '', `?session=${sessionId}`);
+   }
+   const base = `${location.origin}${location.pathname}`;
+   const viewUrl = `${base}?session=${sessionId}&viewer=1`;
+   new QRCode(document.getElementById('qrcode'), { text: viewUrl, width: 100, height: 100 });
+
+
+   const stateRef = ref(db, `sessions/${sessionId}/buttons`);
+   const buttons = document.querySelectorAll('.btn');
+
+
+   // AudioContext を遅延生成
+   let audioCtx = null;
+   function playBeep(duration = 5) {
+     if (!audioCtx) return;
+     const oscillator = audioCtx.createOscillator();
+     oscillator.type = 'sine';
+     oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+     oscillator.connect(audioCtx.destination);
+     oscillator.start();
+     setTimeout(() => oscillator.stop(), duration * 1000);
+   }
+
+
+   // ビューアーモード: ボタン無効 & オーバーレイタップで音声有効化
+   if (isViewer) {
+     buttons.forEach(btn => btn.classList.add('disabled'));
+     const overlay = document.getElementById('overlay');
+     overlay.addEventListener('click', () => {
+       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+       overlay.style.display = 'none';
+     }, { once: true });
+   } else {
+     document.getElementById('overlay').style.display = 'none';
+     buttons.forEach(btn => {
+       btn.addEventListener('click', () => {
+         const key = btn.dataset.key;
+         const btnRef = ref(db, `sessions/${sessionId}/buttons/${key}`);
+         runTransaction(btnRef, current => (current ? 0 : 1));
+       });
+     });
+   }
+
+
+   let prevState = {};
+   onValue(stateRef, snapshot => {
+     const data = snapshot.val() || {};
+     buttons.forEach(btn => {
+       const key = btn.dataset.key;
+       const isActive = data[key] === 1;
+       btn.classList.toggle('active', isActive);
+       if (isViewer && !prevState[key] && isActive) {
+         playBeep(1);
+       }
+     });
+     prevState = { ...data };
+   });
+ </script>
 </body>
 </html>
+
+
+
