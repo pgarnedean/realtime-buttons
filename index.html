@@ -11,10 +11,17 @@
     .btn.disabled { pointer-events: none; opacity: 0.6; cursor: default; }
     .active { background: red; color: white; }
     .confirm-active { background: orange !important; color: #000; }
-    #confirmBtn { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); width: 100px; height: 50px; font-size: 1rem; }
+    #confirmBtn {
+      position: absolute;
+      right: 20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 100px;
+      height: 50px;
+      font-size: 1rem;
+    }
     #qrcode { position: absolute; bottom: 10px; right: 10px; }
-    /* オーバーレイはデフォルト非表示 */
-    #overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
+    #overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.7); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; z-index: 10; text-align: center; padding: 20px; }
   </style>
 </head>
 <body>
@@ -41,14 +48,17 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
     import { getDatabase, ref, onValue, runTransaction, set } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
+    // Firebase 設定
     const firebaseConfig = { /* YOUR FIREBASE CONFIG */ };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // URL パラメータ
     const params = new URLSearchParams(location.search);
     let sessionId = params.get('session');
     const isViewer = params.get('viewer') === '1';
 
+    // セッション生成
     if (!sessionId) {
       sessionId = Math.random().toString(36).substr(2, 8);
       history.replaceState(null, '', `?session=${sessionId}`);
@@ -65,20 +75,24 @@
     const overlay = document.getElementById('overlay');
 
     if (isViewer) {
-      overlay.style.display = 'flex';
+      // ビューアーモード設定
       buttons.forEach(b => b.classList.add('disabled'));
       confirmBtn.disabled = false;
+      overlay.style.display = 'flex';
+
       // 音声有効化
       overlay.addEventListener('click', () => {
         audioElem.play().catch(() => {});
         overlay.style.display = 'none';
       }, { once: true });
-      // 了解ボタン押下時にタイムスタンプを送信
+
+      // 了解ボタン押下
       confirmBtn.addEventListener('click', () => {
         set(confirmRef, Date.now());
         confirmBtn.disabled = true;
       });
     } else {
+      // マスター側
       overlay.style.display = 'none';
       confirmBtn.remove();
       buttons.forEach(btn => {
@@ -96,7 +110,7 @@
       });
     });
 
-    // 了解同期: 押下タイムスタンプをトリガーとして10秒間オレンジ点灯
+    // 了解同期：10秒間オレンジ点灯
     onValue(confirmRef, snapshot => {
       const ts = snapshot.val();
       if (!ts) return;
